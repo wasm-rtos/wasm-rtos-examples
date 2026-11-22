@@ -3,8 +3,8 @@
 **Small, complete programs that show how the parts of wasm-rtos fit
 together**, from the interpreter alone up to the operating system with
 devices. Each example is one host (`main.c`, for your computer) and the
-WebAssembly program it runs (`program.c`), and each runs in CI, so what you
-read here works.
+WebAssembly program it runs (`program.c`, built as `program.wasm` beside
+it), and each runs in CI, so what you read here works.
 
 ```
  programs (.wasm)        any language that compiles to WebAssembly
@@ -68,7 +68,9 @@ cd wasm-rtos-examples
 ./build.sh vm/slices        # one
 ```
 
-You need a C compiler for your computer and a clang that targets
+Each program's `.wasm` is kept next to its source, so a C compiler for your
+computer is all you need: without a WebAssembly toolchain `build.sh` runs
+those. To build the programs too, you need a clang that targets
 WebAssembly with a WASI sysroot: the
 [WASI SDK](https://github.com/WebAssembly/wasi-sdk) (set `WASM_CC` to its
 `clang` and `WASI_SYSROOT` to its `share/wasi-sysroot`), or on macOS
