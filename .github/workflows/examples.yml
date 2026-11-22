@@ -1,0 +1,49 @@
+name: Examples
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+  # Weekly on the newest interpreter, devices and kernel, so an example that
+  # stops building is found before someone copies it.
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: The newest wasm-rtos (scheduled runs)
+        if: github.event_name == 'schedule'
+        run: |
+          git submodule update --init --remote wasm-rtos
+          git -C wasm-rtos submodule update --init --recursive
+
+      # Programs are built by the WASI SDK, checked against its digest; hosts by the runner's cc.
+      - name: Install the toolchains
+        env:
+          WASI_SDK_VERSION: "34"
+          WASI_SDK_SHA256: b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4
+        run: |
+          archive="wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz"
+          sdk="$RUNNER_TEMP/wasi-sdk"
+          curl -fsSL --retry 5 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/$archive"
+          echo "$WASI_SDK_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          mkdir -p "$sdk"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$sdk" --strip-components=1
+          {
+            echo "WASM_CC=$sdk/bin/clang"
+            echo "WASI_SYSROOT=$sdk/share/wasi-sysroot"
+          } >> "$GITHUB_ENV"
+          sudo apt-get install -y gcc-avr avr-libc >/dev/null
+
+      - name: Build and run every example
+        run: ./build.sh
