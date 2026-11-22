@@ -42,14 +42,14 @@ static uint32_t args(void* context, WmRuntime* runtime, const char* const** out)
 }
 
 /* proc_exit ends the call with a trap of the host's: the host knows it from any other. */
-static WmResult on_exit(void* context, WmRuntime* runtime, uint32_t code)
+static WmResult program_exit(void* context, WmRuntime* runtime, uint32_t code)
 {
     (void)context, (void)runtime;
     g_exit_code = code;
     return g_exited;
 }
 
-static const WmWasiHost g_wasi = {.now_ns = now_ns, .write = write_out, .args = args, .exit = on_exit};
+static const WmWasiHost g_wasi = {.now_ns = now_ns, .write = write_out, .args = args, .exit = program_exit};
 
 static WmResult resolve(void* context, const char* module, uint32_t module_length, const char* name,
                         uint32_t name_length, uint8_t kind, WmExtern* out)
