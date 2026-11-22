@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Builds every example and runs it: ./build.sh [example...] (all by default).
+# Builds every example and runs it: ./build.sh [--save] [example...] (all by default).
 #
 # Programs are C built for WebAssembly: plain ones with clang --target=wasm32,
 # ones that use the C library with a WASI sysroot (wasi-sdk, or WASI_SYSROOT).
-# Hosts are C built for this computer with the interpreter, the devices and
-# the kernel from the wasm-rtos submodule.
+# Each one's .wasm is also kept next to its source (program.c, program.wasm):
+# without a WebAssembly toolchain the examples run with those. --save writes
+# the programs built here over them (CI does on main, with its pinned SDK);
+# STRICT=1 fails instead of falling back. Hosts are C built for this computer
+# with the interpreter, the devices and the kernel from the wasm-rtos
+# submodule.
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -27,8 +31,27 @@ SYSROOT=()
 # Sanitizers on the hosts where the compiler has them: an example is also a test.
 HOST_FLAGS=(-std=gnu11 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -fsanitize=address,undefined)
 
-plain() { "$WASM_CC" --target=wasm32 -nostdlib -O2 -Wl,--no-entry -Wl,--export-dynamic "$@"; }
-wasi() { "$WASM_CC" --target=wasm32-wasip1 "${SYSROOT[@]}" -O2 -I$K/include "$@"; }
+SAVE=0
+STRICT="${STRICT:-0}"
+[ "${1:-}" = "--save" ] && { SAVE=1; shift; }
+
+# program <kind> <source.c> <out.wasm> [flags]: built into out, or the committed copy next to the source.
+program()
+{
+    local kind=$1 source=$2 out=$3 kept=${2%.c}.wasm
+    shift 3
+    case $kind in
+    plain) "$WASM_CC" --target=wasm32 -nostdlib -O2 -Wl,--no-entry -Wl,--export-dynamic "$@" "$source" -o "$out" ;;
+    wasi) "$WASM_CC" --target=wasm32-wasip1 "${SYSROOT[@]}" -O2 -I$K/include "$@" "$source" -o "$out" ;;
+    esac 2>"$out.log" && { [ $SAVE = 1 ] && cp "$out" "$kept"; return 0; }
+    if [ "$STRICT" != 1 ] && [ -s "$kept" ]; then
+        echo "note  $source: not built here (no WebAssembly toolchain?), running the committed $kept"
+        cp "$kept" "$out"
+        return 0
+    fi
+    cat "$out.log"
+    return 1
+}
 host() { "$CC" "${HOST_FLAGS[@]}" -I$VM "$@" -lm; }
 kernel_host() { host -I$K -I$HW "$@" $K/*.c $HW/*.c $VM/*.c; }
 
@@ -49,36 +72,37 @@ run() # name, then the command that runs it
 
 example_vm_hello()
 {
-    plain vm/hello/program.c -o $OUT/vm-hello.wasm &&
+    program plain vm/hello/program.c $OUT/vm-hello.wasm &&
         host vm/hello/main.c $VM/*.c -o $OUT/vm-hello &&
         run vm/hello $OUT/vm-hello $OUT/vm-hello.wasm
 }
 
 example_vm_host_call()
 {
-    plain -Wl,--allow-undefined vm/host-call/program.c -o $OUT/vm-host-call.wasm &&
+    program plain vm/host-call/program.c $OUT/vm-host-call.wasm -Wl,--allow-undefined &&
         host vm/host-call/main.c $VM/*.c -o $OUT/vm-host-call &&
         run vm/host-call $OUT/vm-host-call $OUT/vm-host-call.wasm
 }
 
 example_vm_slices()
 {
-    plain -Wl,--allow-undefined vm/slices/program.c -o $OUT/vm-slices.wasm &&
+    program plain vm/slices/program.c $OUT/vm-slices.wasm -Wl,--allow-undefined &&
         host vm/slices/main.c $VM/*.c -o $OUT/vm-slices &&
         run vm/slices $OUT/vm-slices $OUT/vm-slices.wasm
 }
 
 example_vm_wasi()
 {
-    wasi vm/wasi/program.c -o $OUT/vm-wasi.wasm &&
+    program wasi vm/wasi/program.c $OUT/vm-wasi.wasm &&
         host vm/wasi/main.c $VM/*.c -o $OUT/vm-wasi &&
         run vm/wasi $OUT/vm-wasi $OUT/vm-wasi.wasm
 }
 
 example_mini_os()
 {
-    "$WASM_CC" --target=wasm32 -nostdlib -O2 -I$HW/include -Wl,--no-entry -Wl,--export=app_main \
-        -Wl,-z,stack-size=256 -Wl,--page-size=1 mini-os/program.c -o $OUT/mini-os.wasm &&
+    # Stack of 256 bytes and pages of one byte: the program fits a board with 8 KB of RAM.
+    program plain mini-os/program.c $OUT/mini-os.wasm -I$HW/include -Wl,--export=app_main \
+        -Wl,-z,stack-size=256 -Wl,--page-size=1 &&
         host -DHW_HAS_SYSTEM=0 -I$HW mini-os/main.c $HW/*.c $HW/single/*.c $VM/*.c -o $OUT/mini-os &&
         run mini-os $OUT/mini-os $OUT/mini-os.wasm
 }
@@ -98,15 +122,15 @@ example_mini_os_avr()
 
 example_rtos_tasks()
 {
-    wasi rtos/tasks/program.c -o $OUT/rtos-tasks.wasm &&
+    program wasi rtos/tasks/program.c $OUT/rtos-tasks.wasm &&
         kernel_host rtos/tasks/main.c -o $OUT/rtos-tasks &&
         run rtos/tasks $OUT/rtos-tasks $OUT/rtos-tasks.wasm
 }
 
 example_rtos_devices()
 {
-    wasi rtos/devices/blinker.c -o $OUT/rtos-blinker.wasm &&
-        wasi rtos/devices/button.c -o $OUT/rtos-button.wasm &&
+    program wasi rtos/devices/blinker.c $OUT/rtos-blinker.wasm &&
+        program wasi rtos/devices/button.c $OUT/rtos-button.wasm &&
         kernel_host rtos/devices/main.c -o $OUT/rtos-devices &&
         run rtos/devices $OUT/rtos-devices $OUT/rtos-blinker.wasm $OUT/rtos-button.wasm
 }

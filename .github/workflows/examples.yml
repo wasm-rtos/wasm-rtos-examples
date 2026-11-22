@@ -1,7 +1,7 @@
 name: Examples
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   workflow_dispatch:
@@ -45,5 +45,26 @@ jobs:
           } >> "$GITHUB_ENV"
           sudo apt-get install -y gcc-avr avr-libc >/dev/null
 
+      # Programs built by the pinned SDK, never the committed copies (STRICT).
       - name: Build and run every example
-        run: ./build.sh
+        run: STRICT=1 ./build.sh --save
+
+      # The .wasm next to each source is what people without a WebAssembly
+      # toolchain run: main keeps them as this SDK builds them (as the tests
+      # repository keeps its programs). Pull requests only say when they differ.
+      - name: Keep the built programs next to their sources
+        run: |
+          git add -A -- '*.wasm'
+          if git diff --cached --quiet; then
+            echo "The committed programs are as built"
+            exit 0
+          fi
+          git diff --cached --stat
+          if [ "${{ github.event_name }}" != "push" ] || [ "${{ github.ref_name }}" != "main" ]; then
+            echo "::notice::Programs differ from the committed .wasm; main will refresh them"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Programs rebuilt by the pinned WASI SDK"
+          git push origin HEAD:main
