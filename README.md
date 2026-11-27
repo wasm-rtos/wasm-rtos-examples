@@ -36,6 +36,7 @@ small board, or take all three.
 | [`mini-os`](mini-os) | vm + hw | A mini OS of the interpreter, the devices and the simple host: a program blinks a pin and waits for a button; also built for an AVR |
 | [`rtos/tasks`](rtos/tasks) | vm + hw + kernel | Two tasks of one program fed through a queue, their output marked with who wrote it |
 | [`rtos/devices`](rtos/devices) | vm + hw + kernel | A board with a pin and a button shared by two programs: one blinks on a timer, the other sleeps until the button's interrupt |
+| [`rtos/dylink`](rtos/dylink) | vm + hw + kernel + dylink | A program and the shared library it needs (`clang -pie`, `-shared`), a process per task with the library's data of its own; a task saved after its first line goes on in another, library and all |
 
 What they print, from CI:
 
@@ -49,6 +50,17 @@ vm/slices
    15 ms  program 1: ended with 169 after 214 slices
    20 ms  program 2: round 3 done
    30 ms  program 2: ended with 40 after 424 slices
+
+rtos/dylink
+[task 1] round 1 done
+[task 2] round 1 done
+...
+tasks 1 and 2 exited with 3 and 3: lines each counted for itself
+[task 3] round 1 done
+task 3 saved after its first line (166 bytes) and deleted
+[task 4] round 2 done
+[task 4] round 3 done
+task 4 went on from the snapshot and exited with 3: the library's count came with it
 
 rtos/devices
     0 ms  [button] "led" is in use by another program
@@ -68,7 +80,7 @@ cd wasm-rtos-examples
 ./build.sh vm/slices        # one
 ```
 
-Each program's `.wasm` is kept next to its source, so a C compiler for your
+Each program's `.wasm` (and a library's `.so`) is kept next to its source, so a C compiler for your
 computer is all you need: without a WebAssembly toolchain `build.sh` runs
 those. To build the programs too, you need a clang that targets
 WebAssembly with a WASI sysroot: the
@@ -88,6 +100,8 @@ test.
   and how to write the port of a board.
 - [wasm-rtos](https://github.com/wasm-rtos/wasm-rtos): the kernel, the ABI
   programs use (`include/wasm-rtos.h`, `docs/abi.md`) and porting it.
+- [wasm-rtos-dylink](https://github.com/wasm-rtos/wasm-rtos-dylink):
+  `dylink.0` shared libraries, a loader of the kernel (`os_dylink_add`).
 
 ## License
 

@@ -23,7 +23,7 @@ jobs:
       - name: The newest wasm-rtos (scheduled runs)
         if: github.event_name == 'schedule'
         run: |
-          git submodule update --init --remote wasm-rtos
+          git submodule update --init --remote wasm-rtos wasm-rtos-dylink
           git -C wasm-rtos submodule update --init --recursive
 
       # Programs are built by the WASI SDK, checked against its digest; hosts by the runner's cc.
@@ -41,6 +41,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$archive" -C "$sdk" --strip-components=1
           {
             echo "WASM_CC=$sdk/bin/clang"
+            echo "WASM_LD=$sdk/bin/wasm-ld"
             echo "WASI_SYSROOT=$sdk/share/wasi-sysroot"
           } >> "$GITHUB_ENV"
           sudo apt-get install -y gcc-avr avr-libc >/dev/null
@@ -49,12 +50,12 @@ jobs:
       - name: Build and run every example
         run: STRICT=1 ./build.sh --save
 
-      # The .wasm next to each source is what people without a WebAssembly
+      # The .wasm (and .so) next to each source is what people without a WebAssembly
       # toolchain run: main keeps them as this SDK builds them (as the tests
       # repository keeps its programs). Pull requests only say when they differ.
       - name: Keep the built programs next to their sources
         run: |
-          git add -A -- '*.wasm'
+          git add -A -- '*.wasm' '*.so'
           if git diff --cached --quiet; then
             echo "The committed programs are as built"
             exit 0

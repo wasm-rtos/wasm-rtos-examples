@@ -52,6 +52,26 @@ program()
     cat "$out.log"
     return 1
 }
+# dylink <library.c> <program.c> <out.so> <out.wasm>: a -shared library and a -pie program that needs it,
+# or the committed copies next to the sources (library.so, program.wasm).
+dylink()
+{
+    local lib=$1 app=$2 so=$3 wasm=$4 ld="${WASM_LD:-wasm-ld}" pic=()
+    "$ld" --help 2>&1 | grep -- '--experimental-pic' >/dev/null && pic=(--experimental-pic)
+    {
+        "$WASM_CC" --target=wasm32 -nostdlib -fno-builtin -fPIC -fvisibility=default -O2 -c "$lib" -o "$so.o" &&
+            "$ld" -m wasm32 ${pic[@]+"${pic[@]}"} --shared --no-entry --export-dynamic "$so.o" -o "$so" &&
+            "$WASM_CC" --target=wasm32 -nostdlib -fno-builtin -fPIC -O2 -c "$app" -o "$wasm.o" &&
+            "$ld" -m wasm32 ${pic[@]+"${pic[@]}"} --pie --no-entry --export=_start "$wasm.o" "$so" -o "$wasm"
+    } 2>"$wasm.log" && { [ $SAVE = 1 ] && cp "$so" "${lib%.c}.so" && cp "$wasm" "${app%.c}.wasm"; return 0; }
+    if [ "$STRICT" != 1 ] && [ -s "${lib%.c}.so" ] && [ -s "${app%.c}.wasm" ]; then
+        echo "note  $app: not built here (no WebAssembly toolchain?), running the committed copies"
+        cp "${lib%.c}.so" "$so" && cp "${app%.c}.wasm" "$wasm"
+        return 0
+    fi
+    cat "$wasm.log"
+    return 1
+}
 host() { "$CC" "${HOST_FLAGS[@]}" -I$VM "$@" -lm; }
 kernel_host() { host -I$K -I$HW "$@" $K/*.c $HW/*.c $VM/*.c; }
 
@@ -127,6 +147,15 @@ example_rtos_tasks()
         run rtos/tasks $OUT/rtos-tasks $OUT/rtos-tasks.wasm
 }
 
+# dylink.0: the loader of wasm-rtos-dylink joins the kernel (os_dylink_add).
+example_rtos_dylink()
+{
+    dylink rtos/dylink/libtext.c rtos/dylink/program.c $OUT/libtext.so $OUT/rtos-dylink.wasm &&
+        kernel_host -Iwasm-rtos-dylink rtos/dylink/main.c wasm-rtos-dylink/dylink.c wasm-rtos-dylink/os_dylink.c \
+            -o $OUT/rtos-dylink &&
+        run rtos/dylink $OUT/rtos-dylink $OUT/rtos-dylink.wasm $OUT/libtext.so
+}
+
 example_rtos_devices()
 {
     program wasi rtos/devices/blinker.c $OUT/rtos-blinker.wasm &&
@@ -136,7 +165,7 @@ example_rtos_devices()
 }
 
 mkdir -p $OUT
-all="vm_hello vm_host_call vm_slices vm_wasi mini_os mini_os_avr rtos_tasks rtos_devices"
+all="vm_hello vm_host_call vm_slices vm_wasi mini_os mini_os_avr rtos_tasks rtos_devices rtos_dylink"
 for e in ${@:-$all}; do
     e=${e//\//_}
     e=${e//-/_}
