@@ -1,3 +1,6 @@
 [submodule "wasm-rtos"]
 	path = wasm-rtos
 	url = https://github.com/wasm-rtos/wasm-rtos
+[submodule "wasm-rtos-dylink"]
+	path = wasm-rtos-dylink
+	url = https://github.com/wasm-rtos/wasm-rtos-dylink
